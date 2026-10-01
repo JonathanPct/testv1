@@ -96,16 +96,18 @@
 const cv = document.getElementById('jardin');
 const c = cv.getContext('2d');
 const quieto = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const TIPOS = ['margarita', 'tulipan', 'cosmos'];
+const TIPOS = ['margarita', 'tulipan', 'cosmos', 'rosa', 'rosa'];
 const COLORES = {
   margarita: [['#fffaf6', '#ffd9e4'], ['#fff3d6', '#ffe1a8']],
   tulipan: [['#ff7a9c', '#d9406b'], ['#ffb36b', '#e8743b'], ['#f6a6bf', '#c95b8b']],
-  cosmos: [['#ffc2d6', '#e46a9a'], ['#d8b4ff', '#8e5fd6'], ['#ffe08a', '#f0a43a']]
+  cosmos: [['#ffc2d6', '#e46a9a'], ['#d8b4ff', '#8e5fd6'], ['#ffe08a', '#f0a43a']],
+  rosa: [['#ff8fab', '#d6336c'], ['#ffc2d1', '#e8668f'], ['#ff7b7b', '#c92a2a']]
 };
 const AMARILLAS = {
   margarita: [['#fff6c2', '#ffd23f'], ['#fffbe0', '#ffe066']],
   tulipan: [['#ffe45c', '#e8a90c'], ['#fff07a', '#f2b81d']],
-  cosmos: [['#ffec85', '#f4b400'], ['#fff3a8', '#f7c534']]
+  cosmos: [['#ffec85', '#f4b400'], ['#fff3a8', '#f7c534']],
+  rosa: [['#fff3a0', '#f5b700'], ['#ffe680', '#e39b00']]
 };
 /* Datos del enlace: JSON en UTF-8 codificado en base64url dentro del parámetro "r" */
 function codificar(obj) {
@@ -123,7 +125,7 @@ function decodificar(texto) {
 }
 const datos = decodificar(new URLSearchParams(location.search).get('r') || '');
 let amarillas = datos.flores === 'amarillas';
-let W, H, flores = [], luces = [], inicio = 0;
+let W, H, flores = [], relleno = [], luces = [], inicio = 0;
 
 const azar = (a, b) => a + Math.random() * (b - a);
 const elegir = arr => arr[Math.floor(Math.random() * arr.length)];
@@ -142,27 +144,31 @@ function nuevaFlor(o) {
     tipo, color: elegir((amarillas ? AMARILLAS : COLORES)[tipo]),
     base: o.base, nudo: o.nudo, punta: o.punta,
     curva: azar(-40, 40), fase: azar(0, 6.28),
-    tam: azar(0.85, 1.15) * Math.min(W, H) * 0.075,
+    tam: azar(0.8, 1.1) * Math.min(W, H) * (o.nudo ? 0.068 : 0.07),
+    incl: azar(0.72, 1),
     t0: o.t0, hoja: azar(0.35, 0.6), ladoHoja: Math.random() < 0.5 ? -1 : 1
   };
 }
 
+/* Ramo en forma de cúpula: cabezas repartidas dentro de una elipse, muy juntas */
 function armarRamo() {
   flores = [];
-  const n = W < 520 ? 9 : 12;
-  const cx = W / 2, nudo = { x: cx, y: H * 0.86 };
+  const n = W < 520 ? 30 : 38;
+  const cx = W / 2, cy = H * 0.52, nudo = { x: cx, y: H * 0.86 };
+  const rx = Math.min(W * 0.36, 240), ry = Math.min(H * 0.12, 110);
   for (let i = 0; i < n; i++) {
-    const f = i / (n - 1);
-    const abre = Math.min(W * 0.42, 340);
-    const x = cx + (f - 0.5) * 2 * abre + azar(-18, 18);
-    const centro = 1 - Math.abs(f - 0.5) * 2;
-    const y = H * (0.6 - centro * 0.14) + azar(-20, 20);
+    const a = azar(0, Math.PI * 2), d = Math.sqrt(Math.random());
     flores.push(nuevaFlor({
       base: { x: cx + azar(-10, 10), y: H + 10 }, nudo,
-      punta: { x, y }, t0: 0.15 * i + azar(0, 0.2)
+      punta: { x: cx + Math.cos(a) * d * rx, y: cy + Math.sin(a) * d * ry },
+      t0: 0.07 * i + azar(0, 0.3)
     }));
   }
-  flores.sort((a, b) => b.punta.y - a.punta.y);
+  flores.sort((a, b) => a.punta.y - b.punta.y);
+  relleno = Array.from({ length: 70 }, () => {
+    const a = azar(0, Math.PI * 2), d = Math.sqrt(Math.random());
+    return { x: cx + Math.cos(a) * d * rx * 1.15, y: cy + Math.sin(a) * d * ry * 1.25, r: azar(1.5, 3.2), t0: azar(1.5, 3.2) };
+  });
   luces = Array.from({ length: 26 }, () => ({
     x: azar(0, W), y: azar(H * 0.2, H), r: azar(1, 2.4), v: azar(6, 16), fase: azar(0, 6.28)
   }));
@@ -219,8 +225,23 @@ function dibujarFlor(fl, b, mov, t) {
   c.save(); c.translate(p.x, p.y);
   c.rotate(mov * 0.004 + Math.sin(t * 0.7 + fl.fase) * 0.04);
   const [claro, oscuro] = fl.color;
+  if (fl.tipo !== 'tulipan') c.scale(1, fl.incl);
 
-  if (fl.tipo === 'margarita') {
+  if (fl.tipo === 'rosa') {
+    c.fillStyle = oscuro;
+    for (let i = 0; i < 5; i++) {
+      c.save(); c.rotate((i / 5) * Math.PI * 2);
+      c.beginPath(); c.ellipse(0, -r * 0.42, r * 0.45, r * 0.52, 0, 0, Math.PI * 2); c.fill(); c.restore();
+    }
+    c.fillStyle = claro;
+    for (let i = 0; i < 5; i++) {
+      c.save(); c.rotate((i / 5) * Math.PI * 2 + 0.6);
+      c.beginPath(); c.ellipse(0, -r * 0.24, r * 0.3, r * 0.34, 0, 0, Math.PI * 2); c.fill(); c.restore();
+    }
+    c.beginPath(); c.arc(0, 0, r * 0.26, 0, Math.PI * 2); c.fillStyle = oscuro; c.fill();
+    c.beginPath(); c.arc(r * 0.04, 0, r * 0.14, 0.5, Math.PI * 1.7);
+    c.strokeStyle = claro; c.lineWidth = Math.max(r * 0.06, 1); c.stroke();
+  } else if (fl.tipo === 'margarita') {
     for (let i = 0; i < 14; i++) {
       c.save(); c.rotate((i / 14) * Math.PI * 2);
       petalo(r, r * 0.22);
@@ -330,14 +351,18 @@ function cuadro(ahora) {
     c.fillStyle = `rgba(242, 200, 121, ${brillo})`; c.fill();
   });
 
-  flores.forEach(fl => {
+  const estados = flores.map(fl => {
     const local = t - fl.t0;
-    const g = suave(local / 1.6), b = suave((local - 1.3) / 1.0);
-    if (g <= 0) return;
-    const mov = quieto ? 0 : Math.sin(t * 0.9 + fl.fase) * 6 * g;
-    dibujarTallo(fl, g, mov);
-    dibujarFlor(fl, b, mov, t);
+    return { fl, g: suave(local / 1.6), b: suave((local - 1.3) / 1.0), mov: quieto ? 0 : Math.sin(t * 0.9 + fl.fase) * 5 * suave(local / 1.6) };
+  }).filter(e => e.g > 0);
+  estados.forEach(e => dibujarTallo(e.fl, e.g, e.mov));
+  relleno.forEach(p => {
+    const a = suave((t - p.t0) / 0.8);
+    if (a <= 0) return;
+    c.beginPath(); c.arc(p.x, p.y, p.r * a, 0, Math.PI * 2);
+    c.fillStyle = 'rgba(255, 252, 245, 0.9)'; c.fill();
   });
+  estados.forEach(e => dibujarFlor(e.fl, e.b, e.mov, t));
   dibujarLazo(suave((t - 2.4) / 0.8));
   dibujarRaton(t);
 
