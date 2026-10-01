@@ -106,7 +106,22 @@ const AMARILLAS = {
   tulipan: [['#ffe45c', '#e8a90c'], ['#fff07a', '#f2b81d']],
   cosmos: [['#ffec85', '#f4b400'], ['#fff3a8', '#f7c534']]
 };
-let amarillas = new URLSearchParams(location.search).get('flores') === 'amarillas';
+/* Datos del enlace: JSON en UTF-8 codificado en base64url dentro del parámetro "r" */
+function codificar(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function decodificar(texto) {
+  try {
+    const b64 = texto.replace(/-/g, '+').replace(/_/g, '/');
+    const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes)) || {};
+  } catch {
+    return {};
+  }
+}
+const datos = decodificar(new URLSearchParams(location.search).get('r') || '');
+let amarillas = datos.flores === 'amarillas';
 let W, H, flores = [], luces = [], inicio = 0;
 
 const azar = (a, b) => a + Math.random() * (b - a);
@@ -350,18 +365,17 @@ addEventListener('resize', () => {
 medir(); armarRamo(); requestAnimationFrame(cuadro);
 
 /*
- * Texto y color del ramo: se leen de la URL (?para=...&mensaje=...&firma=...&flores=amarillas).
- * Sin mensaje en la URL se muestra el texto por defecto y el botón de edición,
- * que genera un enlace con el texto escrito y el color elegido.
+ * Texto y color del ramo: se leen del parámetro codificado "r".
+ * Sin mensaje en el enlace se muestra el texto por defecto y el botón de edición,
+ * que genera un enlace codificado con el texto escrito y el color elegido.
  */
 const $ = id => document.getElementById(id);
 const campos = ['para', 'mensaje', 'firma'];
 const AVISO = 'Toca para que crezcan más flores';
-const params = new URLSearchParams(location.search);
 const original = {};
 
 campos.forEach(id => {
-  if (params.get(id)) $(id).textContent = params.get(id);
+  if (typeof datos[id] === 'string' && datos[id].trim()) $(id).textContent = datos[id];
   original[id] = $(id).textContent;
   $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $(id).blur(); } });
 });
@@ -381,9 +395,9 @@ function modoEdicion(activo) {
 }
 
 function enlace() {
-  const q = new URLSearchParams(Object.fromEntries(campos.map(id => [id, leer(id)])));
-  if (amarillas) q.set('flores', 'amarillas');
-  return location.origin + location.pathname + '?' + q;
+  const obj = Object.fromEntries(campos.map(id => [id, leer(id)]));
+  if (amarillas) obj.flores = 'amarillas';
+  return location.origin + location.pathname + '?r=' + codificar(obj);
 }
 
 $('editar').addEventListener('click', () => modoEdicion(true));
@@ -404,7 +418,7 @@ $('copiar').addEventListener('click', async () => {
   }
 });
 
-if (!params.get('mensaje')) $('editar').hidden = false;
+if (!datos.mensaje) $('editar').hidden = false;
 </script>
 </body>
 </html>
