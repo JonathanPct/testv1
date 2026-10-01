@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Un ramo para ti</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Parisienne&family=Cormorant+Garamond:ital,wght@0,500;1,500&display=swap">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  /* Ramo nocturno a pantalla completa: mensaje arriba, flores creciendo desde un lazo abajo */
+  :root {
+    --noche: #1d1530;
+    --noche-2: #3a2148;
+    --rosa: #f6a6bf;
+    --oro: #f2c879;
+    --texto: #fbeef2;
+    --tenue: #c9b3cf;
+    --f-firma: "Parisienne", "Brush Script MT", cursive;
+    --f-texto: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(120% 80% at 50% 100%, var(--noche-2), var(--noche) 70%);
+    background-color: var(--noche);
+    color: var(--texto);
+    font-family: var(--f-texto);
+    overflow: hidden;
+  }
+  .escena { position: relative; height: 100%; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: manipulation; cursor: pointer; }
+  .tarjeta {
+    position: relative; z-index: 1;
+    max-width: 30rem; margin: 0 auto;
+    padding: clamp(28px, 7vh, 64px) 16px 0;
+    text-align: center; pointer-events: none;
+    display: grid; gap: 0.6rem;
+    animation: aparecer 1.4s ease-out 0.4s both;
+  }
+  .tarjeta h1 {
+    margin: 0; font-family: var(--f-firma); font-weight: 400;
+    font-size: clamp(2.6rem, 11vw, 4rem); line-height: 1.05;
+    color: var(--rosa); text-wrap: balance;
+  }
+  .tarjeta p {
+    margin: 0; font-size: clamp(1.15rem, 4.6vw, 1.45rem); line-height: 1.45;
+    font-style: italic; text-wrap: balance;
+  }
+  .tarjeta .firma { font-family: var(--f-firma); font-style: normal; color: var(--oro); font-size: clamp(1.3rem, 5vw, 1.7rem); }
+  .editando .tarjeta { pointer-events: auto; }
+  .editando [contenteditable] {
+    outline: 1px dashed color-mix(in srgb, var(--rosa) 70%, transparent);
+    outline-offset: 4px; border-radius: 4px; cursor: text;
+  }
+  .editando [contenteditable]:focus { outline: 2px solid var(--oro); }
+  .pie {
+    position: absolute; z-index: 1; left: 0; right: 0;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding-inline: 16px; font-size: 1rem; color: var(--tenue); text-align: center;
+  }
+  .pie button {
+    font: inherit; font-size: 0.95rem; color: var(--texto);
+    background: color-mix(in srgb, var(--noche) 60%, transparent);
+    border: 1px solid color-mix(in srgb, var(--rosa) 45%, transparent);
+    border-radius: 999px; padding: 6px 16px; cursor: pointer;
+  }
+  .pie button.principal { background: var(--rosa); color: var(--noche); border-color: var(--rosa); }
+    .pie button:focus-visible { outline: 2px solid var(--oro); outline-offset: 2px; }
+  @keyframes aparecer { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .tarjeta { animation: none; } }
+</style>
+</head>
+<body>
+<div class="escena" id="escena">
+  <canvas id="jardin" aria-label="Ramo de flores animado con un ratoncito"></canvas>
+  <div class="tarjeta">
+    <h1 id="para">Para ti</h1>
+    <p id="mensaje">Un ramo que nunca se marchita, para alguien que me alegra los días.</p>
+    <span class="firma" id="firma">con cariño</span>
+  </div>
+  <div class="pie">
+    <span id="estado">Toca para que crezcan más flores</span>
+    <button id="otraVez" type="button">Volver a florecer</button>
+    <button id="editar" type="button" hidden>Editar texto</button>
+    <button id="color" type="button" hidden>Flores amarillas</button>
+    <button id="copiar" type="button" class="principal" hidden>Copiar enlace</button>
+    <button id="listo" type="button" hidden>Listo</button>
+  </div>
+</div>
+
+<script>
+const cv = document.getElementById('jardin');
+const c = cv.getContext('2d');
+const quieto = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const TIPOS = ['margarita', 'tulipan', 'cosmos'];
+const COLORES = {
+  margarita: [['#fffaf6', '#ffd9e4'], ['#fff3d6', '#ffe1a8']],
+  tulipan: [['#ff7a9c', '#d9406b'], ['#ffb36b', '#e8743b'], ['#f6a6bf', '#c95b8b']],
+  cosmos: [['#ffc2d6', '#e46a9a'], ['#d8b4ff', '#8e5fd6'], ['#ffe08a', '#f0a43a']]
+};
+const AMARILLAS = {
+  margarita: [['#fff6c2', '#ffd23f'], ['#fffbe0', '#ffe066']],
+  tulipan: [['#ffe45c', '#e8a90c'], ['#fff07a', '#f2b81d']],
+  cosmos: [['#ffec85', '#f4b400'], ['#fff3a8', '#f7c534']]
+};
+let amarillas = new URLSearchParams(location.search).get('flores') === 'amarillas';
+let W, H, flores = [], luces = [], inicio = 0;
+
+const azar = (a, b) => a + Math.random() * (b - a);
+const elegir = arr => arr[Math.floor(Math.random() * arr.length)];
+const suave = t => 1 - Math.pow(1 - Math.min(Math.max(t, 0), 1), 3);
+
+function medir() {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  W = cv.clientWidth; H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function nuevaFlor(o) {
+  const tipo = o.tipo || elegir(TIPOS);
+  return {
+    tipo, color: elegir((amarillas ? AMARILLAS : COLORES)[tipo]),
+    base: o.base, nudo: o.nudo, punta: o.punta,
+    curva: azar(-40, 40), fase: azar(0, 6.28),
+    tam: azar(0.85, 1.15) * Math.min(W, H) * 0.075,
+    t0: o.t0, hoja: azar(0.35, 0.6), ladoHoja: Math.random() < 0.5 ? -1 : 1
+  };
+}
+
+function armarRamo() {
+  flores = [];
+  const n = W < 520 ? 9 : 12;
+  const cx = W / 2, nudo = { x: cx, y: H * 0.86 };
+  for (let i = 0; i < n; i++) {
+    const f = i / (n - 1);
+    const abre = Math.min(W * 0.42, 340);
+    const x = cx + (f - 0.5) * 2 * abre + azar(-18, 18);
+    const centro = 1 - Math.abs(f - 0.5) * 2;
+    const y = H * (0.6 - centro * 0.14) + azar(-20, 20);
+    flores.push(nuevaFlor({
+      base: { x: cx + azar(-10, 10), y: H + 10 }, nudo,
+      punta: { x, y }, t0: 0.15 * i + azar(0, 0.2)
+    }));
+  }
+  flores.sort((a, b) => b.punta.y - a.punta.y);
+  luces = Array.from({ length: 26 }, () => ({
+    x: azar(0, W), y: azar(H * 0.2, H), r: azar(1, 2.4), v: azar(6, 16), fase: azar(0, 6.28)
+  }));
+  inicio = performance.now();
+}
+
+function puntoTallo(fl, s, mov) {
+  const punta = { x: fl.punta.x + mov, y: fl.punta.y };
+  if (fl.nudo) {
+    if (s < 0.2) {
+      const u = s / 0.2;
+      return { x: fl.base.x + (fl.nudo.x - fl.base.x) * u, y: fl.base.y + (fl.nudo.y - fl.base.y) * u };
+    }
+    return bezier(fl.nudo, punta, fl.curva + mov * 0.5, (s - 0.2) / 0.8);
+  }
+  return bezier(fl.base, punta, fl.curva + mov * 0.5, s);
+}
+
+function bezier(a, b, curva, u) {
+  const k = { x: (a.x + b.x) / 2 + curva, y: (a.y + b.y) / 2 };
+  const m = 1 - u;
+  return { x: m * m * a.x + 2 * m * u * k.x + u * u * b.x, y: m * m * a.y + 2 * m * u * k.y + u * u * b.y };
+}
+
+function dibujarTallo(fl, g, mov) {
+  c.beginPath();
+  for (let i = 0; i <= 40; i++) {
+    const p = puntoTallo(fl, (i / 40) * g, mov);
+    i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y);
+  }
+  c.strokeStyle = '#5f9a63'; c.lineWidth = 3; c.lineCap = 'round'; c.stroke();
+
+  const crece = suave((g - fl.hoja) / 0.3);
+  if (crece > 0) {
+    const p = puntoTallo(fl, fl.hoja, mov), q = puntoTallo(fl, fl.hoja + 0.02, mov);
+    const ang = Math.atan2(q.y - p.y, q.x - p.x) + fl.ladoHoja * 0.9;
+    c.save(); c.translate(p.x, p.y); c.rotate(ang);
+    c.beginPath(); c.moveTo(0, 0);
+    const l = fl.tam * 1.1 * crece, a = fl.tam * 0.35 * crece;
+    c.quadraticCurveTo(l * 0.5, -a, l, 0); c.quadraticCurveTo(l * 0.5, a, 0, 0);
+    c.fillStyle = '#76b06f'; c.fill(); c.restore();
+  }
+}
+
+function petalo(largo, ancho) {
+  c.beginPath(); c.moveTo(0, 0);
+  c.bezierCurveTo(ancho, -largo * 0.3, ancho * 0.8, -largo, 0, -largo);
+  c.bezierCurveTo(-ancho * 0.8, -largo, -ancho, -largo * 0.3, 0, 0);
+}
+
+function dibujarFlor(fl, b, mov, t) {
+  if (b <= 0) return;
+  const p = puntoTallo(fl, 1, mov), r = fl.tam * b;
+  c.save(); c.translate(p.x, p.y);
+  c.rotate(mov * 0.004 + Math.sin(t * 0.7 + fl.fase) * 0.04);
+  const [claro, oscuro] = fl.color;
+
+  if (fl.tipo === 'margarita') {
+    for (let i = 0; i < 14; i++) {
+      c.save(); c.rotate((i / 14) * Math.PI * 2);
+      petalo(r, r * 0.22);
+      const gr = c.createLinearGradient(0, 0, 0, -r);
+      gr.addColorStop(0, oscuro); gr.addColorStop(1, claro);
+      c.fillStyle = gr; c.fill(); c.restore();
+    }
+    c.beginPath(); c.arc(0, 0, r * 0.28, 0, Math.PI * 2);
+    c.fillStyle = '#f2b544'; c.fill();
+  } else if (fl.tipo === 'cosmos') {
+    for (let i = 0; i < 8; i++) {
+      c.save(); c.rotate((i / 8) * Math.PI * 2 + 0.2);
+      petalo(r, r * 0.5);
+      const gr = c.createLinearGradient(0, 0, 0, -r);
+      gr.addColorStop(0, oscuro); gr.addColorStop(1, claro);
+      c.fillStyle = gr; c.fill(); c.restore();
+    }
+    c.beginPath(); c.arc(0, 0, r * 0.18, 0, Math.PI * 2);
+    c.fillStyle = '#ffe9a6'; c.fill();
+  } else {
+    const gr = c.createLinearGradient(0, -r * 1.2, 0, r * 0.2);
+    gr.addColorStop(0, claro); gr.addColorStop(1, oscuro);
+    c.fillStyle = gr;
+    [-0.35, 0.35, 0].forEach((a, i) => {
+      c.save(); c.rotate(a * b); c.translate(0, r * 0.15);
+      petalo(r * 1.15, r * (i === 2 ? 0.55 : 0.45));
+      c.globalAlpha = i === 2 ? 1 : 0.85; c.fill(); c.restore();
+    });
+  }
+  c.restore();
+}
+
+function dibujarLazo(a) {
+  if (a <= 0) return;
+  const x = W / 2, y = H * 0.86, s = Math.min(W, H) * 0.05 * a;
+  c.save(); c.translate(x, y); c.fillStyle = '#f2c879';
+  [-1, 1].forEach(lado => {
+    c.beginPath(); c.moveTo(0, 0);
+    c.quadraticCurveTo(lado * s * 1.6, -s * 1.2, lado * s * 1.4, 0);
+    c.quadraticCurveTo(lado * s * 1.6, s * 1.1, 0, 0); c.fill();
+    c.beginPath(); c.moveTo(0, 0);
+    c.lineTo(lado * s * 0.9, s * 1.9); c.lineTo(lado * s * 0.4, s * 1.7); c.closePath(); c.fill();
+  });
+  c.beginPath(); c.arc(0, 0, s * 0.35, 0, Math.PI * 2); c.fillStyle = '#e0a94f'; c.fill();
+  c.restore();
+}
+
+/* Ratoncito: corre de lado a lado por delante del ramo, ida y vuelta */
+function dibujarRaton(t) {
+  const s = Math.min(Math.max(Math.min(W, H) * 0.04, 14), 24);
+  const suelo = document.querySelector('.pie').getBoundingClientRect().top - cv.getBoundingClientRect().top - 10;
+  let x, dir, paso;
+  if (quieto) {
+    x = W / 2 + s * 4; dir = -1; paso = 0;
+  } else {
+    if (t < 3) return;
+    const tramo = W + s * 8, v = Math.max(W / 5, 90);
+    const fase = ((t - 3) * v) % (tramo * 2);
+    dir = fase < tramo ? 1 : -1;
+    x = dir === 1 ? fase - s * 4 : W + s * 4 - (fase - tramo);
+    paso = t * 20;
+  }
+  const bote = Math.abs(Math.sin(paso)) * s * 0.15;
+
+  c.save(); c.translate(x, suelo - bote); c.scale(dir, 1);
+  c.lineCap = 'round';
+
+  c.beginPath(); c.moveTo(-s * 0.95, -s * 0.4);
+  c.bezierCurveTo(-s * 1.8, -s * (0.9 + Math.sin(paso * 0.6) * 0.3), -s * 2.3, -s * 0.1, -s * 2.8, -s * 0.5);
+  c.strokeStyle = '#e8a3b4'; c.lineWidth = s * 0.12; c.stroke();
+
+  c.strokeStyle = '#8a7f8e'; c.lineWidth = s * 0.14;
+  [[-0.5, 0], [0.5, Math.PI]].forEach(([lx, desfase]) => {
+    [0, Math.PI / 2].forEach(extra => {
+      const a = Math.sin(paso + desfase + extra) * s * 0.35;
+      c.beginPath(); c.moveTo(s * lx, -s * 0.3); c.lineTo(s * lx + a, 0); c.stroke();
+    });
+  });
+
+  c.fillStyle = '#b9aec0';
+  c.beginPath(); c.ellipse(0, -s * 0.6, s * 1.05, s * 0.6, 0, 0, Math.PI * 2); c.fill();
+  c.beginPath(); c.ellipse(s * 1.05, -s * 0.72, s * 0.62, s * 0.42, 0.15, 0, Math.PI * 2); c.fill();
+  c.beginPath(); c.arc(s * 0.75, -s * 1.15, s * 0.34, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#f2bccb';
+  c.beginPath(); c.arc(s * 0.75, -s * 1.15, s * 0.2, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#2a2030';
+  c.beginPath(); c.arc(s * 1.22, -s * 0.84, s * 0.08, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#f08aa8';
+  c.beginPath(); c.arc(s * 1.66, -s * 0.66, s * 0.1, 0, Math.PI * 2); c.fill();
+
+  c.strokeStyle = 'rgba(251, 238, 242, 0.6)'; c.lineWidth = 1;
+  [-0.12, 0.08].forEach(dy => {
+    c.beginPath(); c.moveTo(s * 1.55, -s * 0.66); c.lineTo(s * 2.1, -s * (0.66 - dy * 2)); c.stroke();
+  });
+  c.restore();
+}
+
+function cuadro(ahora) {
+  const t = quieto ? 99 : (ahora - inicio) / 1000;
+  c.clearRect(0, 0, W, H);
+
+  luces.forEach(l => {
+    const y = quieto ? l.y : (l.y - t * l.v) % H;
+    const yy = y < 0 ? y + H : y;
+    const brillo = 0.35 + 0.35 * Math.sin(t * 1.5 + l.fase);
+    c.beginPath(); c.arc(l.x + Math.sin(t + l.fase) * 8, yy, l.r, 0, Math.PI * 2);
+    c.fillStyle = `rgba(242, 200, 121, ${brillo})`; c.fill();
+  });
+
+  flores.forEach(fl => {
+    const local = t - fl.t0;
+    const g = suave(local / 1.6), b = suave((local - 1.3) / 1.0);
+    if (g <= 0) return;
+    const mov = quieto ? 0 : Math.sin(t * 0.9 + fl.fase) * 6 * g;
+    dibujarTallo(fl, g, mov);
+    dibujarFlor(fl, b, mov, t);
+  });
+  dibujarLazo(suave((t - 2.4) / 0.8));
+  dibujarRaton(t);
+
+  if (!quieto) requestAnimationFrame(cuadro);
+}
+
+cv.addEventListener('pointerdown', e => {
+  const r = cv.getBoundingClientRect();
+  const x = e.clientX - r.left, y = Math.max(e.clientY - r.top, H * 0.3);
+  const t = (performance.now() - inicio) / 1000;
+  flores.push(nuevaFlor({ base: { x: x + azar(-30, 30), y: H + 10 }, punta: { x, y }, t0: quieto ? -10 : t }));
+  if (quieto) cuadro(performance.now());
+});
+
+document.getElementById('otraVez').addEventListener('click', () => {
+  armarRamo();
+  if (quieto) cuadro(performance.now());
+});
+
+let espera;
+addEventListener('resize', () => {
+  clearTimeout(espera);
+  espera = setTimeout(() => { medir(); armarRamo(); if (quieto) cuadro(performance.now()); }, 200);
+});
+
+medir(); armarRamo(); requestAnimationFrame(cuadro);
+
+/*
+ * Texto y color del ramo: se leen de la URL (?para=...&mensaje=...&firma=...&flores=amarillas).
+ * Sin mensaje en la URL se muestra el texto por defecto y el botón de edición,
+ * que genera un enlace con el texto escrito y el color elegido.
+ */
+const $ = id => document.getElementById(id);
+const campos = ['para', 'mensaje', 'firma'];
+const AVISO = 'Toca para que crezcan más flores';
+const params = new URLSearchParams(location.search);
+const original = {};
+
+campos.forEach(id => {
+  if (params.get(id)) $(id).textContent = params.get(id);
+  original[id] = $(id).textContent;
+  $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $(id).blur(); } });
+});
+
+const leer = id => $(id).innerText.replace(/\s+/g, ' ').trim() || original[id];
+
+function modoEdicion(activo) {
+  $('escena').classList.toggle('editando', activo);
+  campos.forEach(id => activo ? $(id).setAttribute('contenteditable', 'plaintext-only') : $(id).removeAttribute('contenteditable'));
+  $('editar').hidden = activo;
+  $('otraVez').hidden = activo;
+  $('color').hidden = !activo;
+  $('copiar').hidden = !activo;
+  $('listo').hidden = !activo;
+  $('estado').textContent = activo ? 'Toca un texto para cambiarlo' : AVISO;
+  if (activo) $('mensaje').focus();
+}
+
+function enlace() {
+  const q = new URLSearchParams(Object.fromEntries(campos.map(id => [id, leer(id)])));
+  if (amarillas) q.set('flores', 'amarillas');
+  return location.origin + location.pathname + '?' + q;
+}
+
+$('editar').addEventListener('click', () => modoEdicion(true));
+$('color').addEventListener('click', () => {
+  amarillas = !amarillas;
+  $('color').textContent = amarillas ? 'Flores de colores' : 'Flores amarillas';
+  armarRamo();
+  if (quieto) cuadro(performance.now());
+});
+$('listo').addEventListener('click', () => modoEdicion(false));
+$('copiar').addEventListener('click', async () => {
+  const url = enlace();
+  try {
+    await navigator.clipboard.writeText(url);
+    $('estado').textContent = 'Enlace copiado. Pégalo en Instagram.';
+  } catch {
+    $('estado').textContent = url;
+  }
+});
+
+if (!params.get('mensaje')) $('editar').hidden = false;
+</script>
+</body>
+</html>
